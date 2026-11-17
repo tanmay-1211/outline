@@ -593,6 +593,80 @@ export class DocumentHelper {
    * @param actorId the authenticated writer to attribute new mentions to.
    * @returns The document
    */
+  private static normalizePatchMatchText(value: string) {
+    const normalized: string[] = [];
+    const originalIndexByNormalizedIndex: number[] = [];
+
+    let index = 0;
+    while (index < value.length) {
+      if (value.startsWith("\r\n", index)) {
+        normalized.push("\n");
+        originalIndexByNormalizedIndex.push(index);
+        index += 2;
+        continue;
+      }
+
+      if (value.startsWith("\n\\\n", index)) {
+        normalized.push("\n", "\n");
+        originalIndexByNormalizedIndex.push(index, index + 2);
+        index += 3;
+        continue;
+      }
+
+      normalized.push(value[index]);
+      originalIndexByNormalizedIndex.push(index);
+      index += 1;
+    }
+
+    originalIndexByNormalizedIndex.push(value.length);
+
+    return {
+      text: normalized.join(""),
+      originalIndexByNormalizedIndex,
+    };
+  }
+
+  private static findPatchMatch(markdown: string, findText: string) {
+    const exactIndex = markdown.indexOf(findText);
+    if (exactIndex !== -1) {
+      return {
+        matchIndex: exactIndex,
+        matchEnd: exactIndex + findText.length,
+      };
+    }
+
+    const normalizedMarkdown = DocumentHelper.normalizePatchMatchText(markdown);
+    const normalizedFindText = DocumentHelper.normalizePatchMatchText(findText);
+
+    if (
+      normalizedMarkdown.text === markdown &&
+      normalizedFindText.text === findText
+    ) {
+      return undefined;
+    }
+
+    const matchIndex = normalizedMarkdown.text.indexOf(normalizedFindText.text);
+    if (matchIndex === -1) {
+      return undefined;
+    }
+
+    const secondMatch = normalizedMarkdown.text.indexOf(
+      normalizedFindText.text,
+      matchIndex + 1
+    );
+    if (secondMatch !== -1) {
+      return undefined;
+    }
+
+    const matchEnd = matchIndex + normalizedFindText.text.length;
+    return {
+      matchIndex:
+        normalizedMarkdown.originalIndexByNormalizedIndex[matchIndex],
+      matchEnd:
+        normalizedMarkdown.originalIndexByNormalizedIndex[matchEnd],
+    };
+  }
+
   static applyMarkdownToDocument(
     document: Document,
     text: string,
@@ -616,13 +690,13 @@ export class DocumentHelper {
       const { markdown, blockMap } =
         serializer.serializeWithPositions(existingDoc);
 
-      const matchIndex = markdown.indexOf(findText);
-      if (matchIndex === -1) {
+      const match = DocumentHelper.findPatchMatch(markdown, findText);
+      if (!match) {
         throw ValidationError(
           "The specified text was not found in the document"
         );
       }
-      const matchEnd = matchIndex + findText.length;
+      const { matchIndex, matchEnd } = match;
 
       // Find which top-level blocks overlap the matched range
       const affected = blockMap.filter(
