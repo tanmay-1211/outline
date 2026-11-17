@@ -517,6 +517,34 @@ describe("DocumentHelper", () => {
       expect(await DocumentHelper.toMarkdown(patched)).toContain("Four");
     });
 
+    it("should patch across empty paragraphs when the client omits the serializer marker", async () => {
+      const document = await buildDocument({ text: "One\n\n\\\n\nTwo" });
+
+      const patched = DocumentHelper.applyMarkdownToDocument(
+        document,
+        "One\n\nThree",
+        TextEditMode.Patch,
+        "One\n\nTwo"
+      );
+
+      expect(patched.text).toBe("One\n\nThree");
+    });
+
+    it("should reject ambiguous normalized patch matches", async () => {
+      const document = await buildDocument({
+        text: "Alpha\n\n\\\n\nBeta\n\nAlpha\n\n\\\n\nBeta",
+      });
+
+      expect(() =>
+        DocumentHelper.applyMarkdownToDocument(
+          document,
+          "Gamma",
+          TextEditMode.Patch,
+          "Alpha\n\nBeta"
+        )
+      ).toThrow("The specified text was not found in the document");
+    });
+
     it("should return undefined when the diff does not complete in time", async () => {
       const lines = Array.from({ length: 100 }, (_, i) => `Line ${i}`);
       const before = await buildDocument({ text: lines.join("\n\n") });
